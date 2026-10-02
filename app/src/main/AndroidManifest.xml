@@ -28,9 +28,6 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CAPTURE_KEYBOARD" />
-    <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
-    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
 
     <!-- We don't need a MulticastLock on API level 34+ because we use NsdManager for mDNS -->
     <uses-permission
@@ -83,16 +80,7 @@
     <uses-feature
         android:name="pvr.software.handtracking"
         android:required="false"/>
-    <!-- Eye tracking, for headsets that point by looking. Optional again, and
-         only ever used to aim the existing pointer -->
-    <uses-feature
-        android:name="oculus.software.eye_tracking"
-        android:required="false"/>
-    <uses-permission android:name="com.oculus.permission.EYE_TRACKING" />
-    <uses-feature
-        android:name="pvr.software.eyetracking"
-        android:required="false"/>
-    <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
+    <!-- Pop3D: sem rastreamento dos olhos (não é usado; a loja cobra justificativa de cada permissão) -->
 
     <application
         android:name=".MoonlightApplication"

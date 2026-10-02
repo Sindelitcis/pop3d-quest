@@ -21,7 +21,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private AudioTrack track;
     private boolean standalone;
 
-    // True quando o audio vem de fora do Moonlight (Estudio 3D)
+    // True quando o audio vem de fora do Moonlight (Pop3D)
     public void setStandalone(boolean standalone) {
         this.standalone = standalone;
     }

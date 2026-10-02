@@ -54,7 +54,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static com.limelight.binding.video.XrShared.*;
 
 /**
- * Estudio 3D: o Quest como monitor VR remoto. O PC manda video HEVC, audio PCM,
+ * Pop3D: o Quest como monitor VR remoto. O PC manda video HEVC, audio PCM,
  * texturas e a lista de camadas a desenhar; este app mantem a sessao OpenXR,
  * desenha as camadas (XrRenderer em modo remoto) e devolve cabeca, controles e
  * botoes a cada quadro. Ver PROTOCOLO.md.
@@ -66,7 +66,7 @@ import static com.limelight.binding.video.XrShared.*;
 public class EstudioActivity extends Activity implements XrRenderer.RemoteListener,
         PerfOverlayListener {
 
-    private static final String TAG = "Estudio3D: ";
+    private static final String TAG = "Pop3D: ";
 
     private static final int PORTA_UDP = 52300;
     private static final int PORTA_TCP = 52301;
@@ -355,7 +355,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             if (wm != null) {
-                multicastLock = wm.createMulticastLock("estudio3d");
+                multicastLock = wm.createMulticastLock("pop3d");
                 multicastLock.setReferenceCounted(false);
                 multicastLock.acquire();
             }

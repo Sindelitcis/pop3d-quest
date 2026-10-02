@@ -274,14 +274,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return decoderInfo;
     }
 
-    // True quando os quadros vem de fora do Moonlight (Estudio 3D), sem ligacao nativa
+    // True quando os quadros vem de fora do Moonlight (Pop3D), sem ligacao nativa
     private boolean standalone;
 
     public void setStandalone(boolean standalone) {
         this.standalone = standalone;
     }
 
-    // A session owned by someone else (the Estudio 3D activity keeps it alive
+    // A session owned by someone else (the Pop3D activity keeps it alive
     // across decoders). The decoder only renders into its surface and never
     // stops or releases it.
     private boolean xrOwned = true;
@@ -542,7 +542,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // recovery, which re-runs configure with the same surface.
     private Surface getRenderSurface() {
         if (!xrOwned && xrRenderer != null) {
-            // Estudio 3D: the session outlives the decoder, so its surface is
+            // Pop3D: the session outlives the decoder, so its surface is
             // simply handed over
             return xrRenderer.getInputSurface();
         }

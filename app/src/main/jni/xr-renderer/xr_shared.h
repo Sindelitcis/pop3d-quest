@@ -83,7 +83,7 @@
 #define SETTING_ROOM_LIGHT 7
 #define SETTING_HEAD_LOCK 8
 
-// Remote monitor mode (Estudio 3D): the float array nativeRemoteInput fills once
+// Remote monitor mode (Pop3D): the float array nativeRemoteInput fills once
 // a frame for the activity to turn into an ENTRADA message. State is 0 hidden,
 // 1 visible, 2 focused. Poses are in the LOCAL reference space, quaternions
 // x y z w. The head block is valid flag, position, rotation. Each hand block

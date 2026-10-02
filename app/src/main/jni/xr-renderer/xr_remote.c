@@ -1,4 +1,4 @@
-// Remote monitor mode (Estudio 3D). The PC does the thinking: it sends the
+// Remote monitor mode (Pop3D). The PC does the thinking: it sends the
 // textures and, every frame, the complete list of layers to draw. This file
 // holds those textures, turns the list into composition layers, draws the
 // laser from the controller's current pose and reads the controllers back for
@@ -490,7 +490,7 @@ static void logRemoteStats(XrCtx* ctx, int lastLayers) {
         return;
     }
     double dt = (now - ctx->remoteStatNs) / 1e9;
-    LOGI("Estudio3D remoto: %.0f quadros/s, %d camadas por quadro (%d lasers), "
+    LOGI("Pop3D remoto: %.0f quadros/s, %d camadas por quadro (%d lasers), "
          "puladas %d, entradas lidas %.0f/s, texturas %d (%d envios), video %dx%d",
          ctx->remoteStatFrames / dt, lastLayers, ctx->remoteStatLasers, ctx->remoteStatSkipped,
          ctx->remoteStatInputs / dt, ctx->remoteTexCount, ctx->remoteStatTexUploads,

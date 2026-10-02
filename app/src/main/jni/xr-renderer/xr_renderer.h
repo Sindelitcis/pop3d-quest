@@ -387,7 +387,7 @@ typedef struct XrCompositionLayerSettingsFB {
 // the local detail on top of it. About a tenth of the frame.
 #define DEPTH_LOWPASS_RADIUS 11
 
-// Remote monitor mode (Estudio 3D). The PC decides everything that is drawn:
+// Remote monitor mode (Pop3D). The PC decides everything that is drawn:
 // the quest only holds the textures it was sent and the list of layers that
 // point at them.
 #define REMOTE_MAX_TEX 48

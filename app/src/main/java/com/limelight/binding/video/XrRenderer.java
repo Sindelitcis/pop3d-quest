@@ -377,7 +377,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     // ------------------------------------------------------------------
-    // Remote monitor mode (Estudio 3D). The PC sends textures and the full list
+    // Remote monitor mode (Pop3D). The PC sends textures and the full list
     // of layers to draw; this side keeps the OpenXR session alive, shows what it
     // was told to and reports the head and controllers back every frame.
 
@@ -386,7 +386,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onRemoteInput(float[] in);
     }
 
-    private static final String TAG_REMOTE = "Estudio3D: ";
+    private static final String TAG_REMOTE = "Pop3D: ";
     private static final int REMOTE_MAX_TEXTURES = 48;
     private static final int RL_MAX = 48;
 
@@ -756,6 +756,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * frame loop hands over a captured frame and carries on submitting.
      */
     private void startDepthThread(final Activity activity) {
+        // Pop3D: o 3D vem pronto do PC; o modelo de profundidade do próprio óculos (MiDaS) foi removido
+        // do app (eram 33 MB). A imagem fica plana se alguém ligar esse modo.
+        if (true) {
+            LimeLog.warning("Depth model not included in Pop3D, stereo will be flat");
+            return;
+        }
         depthThread = new Thread() {
             @Override
             public void run() {
@@ -778,7 +784,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         return;
                     }
 
-                    source = new MidasDepthSource();
+                    source = null;
                     if (!source.initialize(activity, input, output)) {
                         // The depth texture keeps the flat map it was
                         // initialized with, so zero disparity, and the
@@ -976,7 +982,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     estStartNs = estNow;
                 }
                 else if (estNow - estStartNs >= 1000000000L) {
-                    LimeLog.info("Estudio3D: " + String.format("%.1f", estFrames * 1e9
+                    LimeLog.info("Pop3D: " + String.format("%.1f", estFrames * 1e9
                             / (estNow - estStartNs)) + " quadros/s apresentados pelo XR");
                     estFrames = 0;
                     estStartNs = estNow;
