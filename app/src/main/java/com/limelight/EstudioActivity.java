@@ -1105,7 +1105,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         p.setColor(0xFF7FB0FF);
         p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         p.setTextSize(48);
-        c.drawText("sindelitcis.github.io/pop3d", PAINEL_W / 2f, 530, p);
+        c.drawText("pop3d.quest", PAINEL_W / 2f, 530, p);
         ByteBuffer buf = ByteBuffer.allocateDirect(PAINEL_W * PAINEL_H * 4)
                 .order(ByteOrder.nativeOrder());
         bmp.copyPixelsToBuffer(buf);
