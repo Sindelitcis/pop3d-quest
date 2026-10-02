@@ -387,6 +387,31 @@ typedef struct XrCompositionLayerSettingsFB {
 // the local detail on top of it. About a tenth of the frame.
 #define DEPTH_LOWPASS_RADIUS 11
 
+// Remote monitor mode (Estudio 3D). The PC decides everything that is drawn:
+// the quest only holds the textures it was sent and the list of layers that
+// point at them.
+#define REMOTE_MAX_TEX 48
+#define REMOTE_MAX_LAYERS 48
+#define REMOTE_ID_MAX 48
+#define LASER_TEX_W 32
+#define LASER_TEX_H 256
+
+typedef struct {
+    char id[REMOTE_ID_MAX];
+    XrSwapchain chain;
+    XrSwapchainImageOpenGLESKHR* images;
+    uint32_t imageCount;
+    int width;
+    int height;
+    // Something has been released into the swapchain, so a layer may show it
+    int ready;
+} RemoteTex;
+
+typedef struct {
+    char tex[REMOTE_ID_MAX];
+    float v[RL_STRIDE];
+} RemoteLayerSpec;
+
 typedef struct {
     JavaVM* vm;
     jobject activity;
@@ -423,6 +448,8 @@ typedef struct {
 
     int videoWidth;
     int videoHeight;
+    // Width of what one eye sees: half the frame in side by side, else all of it
+    int eyeWidth;
 
     // Stereo test path. When stereoMode is not OFF the swapchain is double
     // wide and each eye gets its own warped copy of the frame
@@ -1034,6 +1061,35 @@ typedef struct {
     // disturb the logcat cadence
     long overlayGpuTotalNs;
     long overlayGpuSamples;
+
+    // Remote monitor mode. Everything above that belongs to the furniture, the
+    // rooms and the pointer stays idle when this is set.
+    int remoteMode;
+    // Raised by the event poll, taken by the input pass
+    int recenteredFlag;
+    XrAction hapticAction;
+    // Written by the thread that receives layer lists, read by the frame loop
+    pthread_mutex_t remoteLock;
+    RemoteLayerSpec remoteLayers[REMOTE_MAX_LAYERS];
+    int remoteLayerCount;
+    // Haptic requests waiting for the frame loop to apply them
+    float hapticAmplitude[HAND_COUNT];
+    long hapticDurationNs[HAND_COUNT];
+    RemoteTex remoteTex[REMOTE_MAX_TEX];
+    int remoteTexCount;
+    XrSwapchain laserSwapchain;
+    XrSwapchainImageOpenGLESKHR* laserImages;
+    uint32_t laserImageCount;
+    int laserReady;
+    // Stats, logged once a second
+    long remoteStatNs;
+    int remoteStatFrames;
+    int remoteStatLayers;
+    int remoteStatLasers;
+    int remoteStatSkipped;
+    int remoteStatInputs;
+    int remoteStatTexUploads;
+    int remoteLayerCapWarned;
 } XrCtx;
 
 typedef void (*PFNGENQUERIESEXT)(GLsizei, GLuint*);
@@ -1132,6 +1188,13 @@ int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
 void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
 int createPointerSwapchain(XrCtx* ctx);
 int uploadPointerArt(XrCtx* ctx);
+
+// xr_remote.c: the remote monitor mode, layer list, textures and laser
+void remoteInit(XrCtx* ctx);
+void remoteDestroy(XrCtx* ctx);
+void remoteEndFrame(XrCtx* ctx, int newFrame, const float* texMatrix);
+int uploadArtImage(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                   const unsigned char* px, int width, int height);
 
 // xr_debug.c: setprop knobs and frame capture
 void propFlag(const char* name, int* target);

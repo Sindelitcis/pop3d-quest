@@ -208,9 +208,19 @@ module per concern:
 | `xr_assets.c` | The art swapchains and the uploads from Java that fill them |
 | `xr_ambilight.c` | The frame colour sample, letterbox detection and the glow |
 | `xr_room.c` | The 3d rooms |
+| `xr_remote.c` | Estudio 3D remote monitor mode: the textures and layer list the PC sends, the laser, the per frame input report and haptics. In this mode `nativeEndFrame` hands the whole frame to it and none of the furniture, rooms, glow or pointer code runs |
 | `xr_math.c` | Vectors, quaternions, the one euro filter and projection |
 | `xr_shaders.c` | The GLSL |
 | `xr_log.c`, `xr_debug.c` | The file log, the setprop tuning knobs and frame capture |
+
+### Estudio 3D remote monitor mode
+
+`EstudioActivity` (the launcher icon of this fork) turns the app into a thin remote compositor
+for a PC, following `PROTOCOLO.md` (one folder up). The OpenXR session starts with the app and is
+rebuilt if the system ends it; `XrRenderer.startRemote` runs it, `MediaCodecDecoderRenderer` is
+attached to its SurfaceTexture when a stream arrives, and each frame `xr_remote.c` submits exactly
+the last `CAMADAS` list received. The Moonlight furniture is not deleted, it is simply never reached
+in this mode.
 
 ## Licences
 

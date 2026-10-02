@@ -386,7 +386,7 @@ static int initSwapchain(XrCtx* ctx) {
     free(formats);
 
     // Stereo renders left and right eye views side by side in one swapchain
-    int chainWidth = ctx->stereoMode != DEPTH_MODE_OFF ? ctx->videoWidth * 2 : ctx->videoWidth;
+    int chainWidth = (ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoMode != DEPTH_MODE_SBS) ? ctx->videoWidth * 2 : ctx->videoWidth;
     if (!createArtSwapchain(ctx, chainWidth, ctx->videoHeight, "xrCreateSwapchain",
                             &ctx->swapchain, &ctx->swapchainImages, &ctx->swapchainImageCount)) {
         return 0;
@@ -448,6 +448,7 @@ static void pollEvents(XrCtx* ctx) {
                 XrEventDataReferenceSpaceChangePending* change =
                         (XrEventDataReferenceSpaceChangePending*)&event;
                 if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    ctx->recenteredFlag = 1;
                     // Recentring is the user saying where forward is, so the
                     // screen goes back to the placement a fresh install has
                     // rather than keeping an offset from the old origin
@@ -472,6 +473,7 @@ static void pollEvents(XrCtx* ctx) {
 }
 
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
+    remoteDestroy(ctx);
     destroyXrInput(ctx);
 
     // The depth thread has been joined by now, but a slot published after the
@@ -593,13 +595,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
                                                        jint ambiLevel, jboolean roomLight,
-                                                       jint envResTier) {
+                                                       jint envResTier, jboolean remote) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
+    ctx->remoteMode = remote;
+    if (remote) {
+        // The pc draws everything, so the glow and the rooms have no say
+        ambilight = 0;
+        roomLight = 0;
+        remoteInit(ctx);
+    }
     ctx->handsEnabled = handTracking;
     // EnvResTier: 0 low, 1 standard, 2 high, 3 ultra
     ctx->envResTier = envResTier;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
+    ctx->eyeWidth = stereoMode == DEPTH_MODE_SBS ? width / 2 : width;
     ctx->stereoMode = stereoMode;
     ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
@@ -689,6 +699,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     if (!initXrInput(ctx)) {
         LOGW("controller input unavailable, pointer off");
         destroyXrInput(ctx);
+    }
+    else if (ctx->remoteMode) {
+        // None of the furniture art: the pc sends whatever it wants shown
+        LOGI("remote monitor mode, furniture and pointer art skipped");
     }
     else if (!createPointerSwapchain(ctx)) {
         LOGW("pointer swapchain unavailable, the ray will not be drawn");

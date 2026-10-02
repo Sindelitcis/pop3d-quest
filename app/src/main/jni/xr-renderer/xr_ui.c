@@ -181,7 +181,7 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 
     // The button hangs below the screen, so the panel is placed off it rather
     // than off the screen. Same height the other placements are given.
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->eyeWidth;
     Vec3 button;
     float side;
     cogButtonPlacement(ctx, screenHeight, &button, &side);
@@ -229,7 +229,7 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outWidth = width;
     *outHeight = height;
 
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->eyeWidth;
     Vec3 local;
     local.x = 0.0f;
     // Top edge the same distance under the picture that the bar sits at
@@ -289,7 +289,7 @@ XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outWidth = width;
     *outHeight = height;
 
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->eyeWidth;
     Vec3 button;
     float side;
     exitButtonPlacement(ctx, screenHeight, &button, &side);

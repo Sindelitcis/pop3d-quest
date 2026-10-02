@@ -19,6 +19,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private final boolean enableAudioFx;
 
     private AudioTrack track;
+    private boolean standalone;
+
+    // True quando o audio vem de fora do Moonlight (Estudio 3D)
+    public void setStandalone(boolean standalone) {
+        this.standalone = standalone;
+    }
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
         this.context = context;
@@ -188,7 +194,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
     @Override
     public void playDecodedAudio(short[] audioData) {
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
-        if (MoonBridge.getPendingAudioDuration() < 40) {
+        // Standalone: the caller keeps its own backlog, the native counter means nothing
+        if (standalone || MoonBridge.getPendingAudioDuration() < 40) {
             // This will block until the write is completed. That can cause a backlog
             // of pending audio data, so we do the above check to be able to bound
             // latency at 40 ms in that situation.

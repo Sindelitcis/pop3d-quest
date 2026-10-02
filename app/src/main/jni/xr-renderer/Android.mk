@@ -16,7 +16,7 @@ LOCAL_SRC_FILES := xr_log.c \
                    xr_ui.c \
                    xr_assets.c \
                    xr_debug.c \
-                   xr_layers.c
+                   xr_layers.c                    xr_remote.c
 # Only the JNI entry points are exported, the rest of the module stays private
 LOCAL_CFLAGS := -Wall -Werror -fvisibility=hidden
 # The setprop tuning knobs and frame capture, which the debug build type asks

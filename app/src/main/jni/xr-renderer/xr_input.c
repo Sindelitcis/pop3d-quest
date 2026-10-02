@@ -89,7 +89,7 @@ static XrAction makeAction(XrCtx* ctx, XrActionType type, const char* name, cons
 // first and a runtime that does not recognise this controller falls back to
 // aim and trigger, which every profile has.
 static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
-    XrActionSuggestedBinding b[16];
+    XrActionSuggestedBinding b[24];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
     // x and y on the left controller, a and b on the right
@@ -108,6 +108,12 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
                  simple ? "input/select/click" : "input/trigger/value");
         b[n].action = ctx->triggerAction;
         b[n++].binding = toPath(ctx, path);
+
+        if (ctx->hapticAction != XR_NULL_HANDLE) {
+            snprintf(path, sizeof(path), "%s/output/haptic", hands[h]);
+            b[n].action = ctx->hapticAction;
+            b[n++].binding = toPath(ctx, path);
+        }
 
         if (!full || simple) {
             continue;
@@ -240,6 +246,7 @@ int initXrInput(XrCtx* ctx) {
     ctx->scrollAction = makeAction(ctx, XR_ACTION_TYPE_VECTOR2F_INPUT, "scroll", "Scroll");
     ctx->grabAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "grab", "Move the screen");
     ctx->toggleAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pointertoggle", "Pointer on or off");
+    ctx->hapticAction = makeAction(ctx, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Vibration");
 
     if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
         return 0;
@@ -1265,7 +1272,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             }
             // With stereo off there is nothing for either 3D row to move,
             // and both are drawn greyed to match
-            if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+            if (ctx->cogTab == COG_TAB_3D && (ctx->stereoMode == DEPTH_MODE_OFF || ctx->stereoMode == DEPTH_MODE_SBS)) {
                 continue;
             }
             if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
@@ -1787,7 +1794,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // and flattens it whatever the preference and the panel say.
     f.roomOn = roomEffective(ctx) > 0;
     f.space = (headLocked && !f.roomOn) ? ctx->viewSpace : ctx->localSpace;
-    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->eyeWidth;
     f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     f.radius = ctx->screenRadius;
     f.screenPose = ctx->screenPose;
@@ -1834,7 +1841,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     applyGrab(ctx, f.aimPoses, f.aimValid, f.hand, f.hover, ctx->hoverCorner, offPicture,
               f.height, f.curved);
     f.screenPose = ctx->screenPose;
-    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->eyeWidth;
     f.radius = ctx->screenRadius;
 
     // A handle stays lit while it is being dragged, however far the ray has

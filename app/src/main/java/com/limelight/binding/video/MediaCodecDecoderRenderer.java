@@ -274,6 +274,32 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return decoderInfo;
     }
 
+    // True quando os quadros vem de fora do Moonlight (Estudio 3D), sem ligacao nativa
+    private boolean standalone;
+
+    public void setStandalone(boolean standalone) {
+        this.standalone = standalone;
+    }
+
+    // A session owned by someone else (the Estudio 3D activity keeps it alive
+    // across decoders). The decoder only renders into its surface and never
+    // stops or releases it.
+    private boolean xrOwned = true;
+
+    public void setExternalXrRenderer(XrRenderer renderer) {
+        xrRenderer = renderer;
+        xrOwned = false;
+    }
+
+    // Quadros entregues ao codec e saidos dele, para o log de diagnostico
+    public int getNumFramesIn() {
+        return numFramesIn;
+    }
+
+    public int getNumFramesOut() {
+        return numFramesOut;
+    }
+
     public void setRenderTarget(SurfaceHolder renderTarget) {
         this.renderTarget = renderTarget;
     }
@@ -502,7 +528,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // every later attempt with the shell stuck on its loading screen.
     public void stopXrRenderer() {
         xrRendererStopped = true;
-        if (xrRenderer != null) {
+        if (xrRenderer != null && xrOwned) {
             // Ends the frame loop, which destroys the session on its way out.
             // The codec facing surface is left to the normal cleanup path,
             // since the codec may still be holding it.
@@ -515,6 +541,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // ourselves. The renderer is created once and reused across codec
     // recovery, which re-runs configure with the same surface.
     private Surface getRenderSurface() {
+        if (!xrOwned && xrRenderer != null) {
+            // Estudio 3D: the session outlives the decoder, so its surface is
+            // simply handed over
+            return xrRenderer.getInputSurface();
+        }
         if (prefs.enableVrMode && !xrRendererStopped
                 && !activity.isFinishing() && !activity.isDestroyed()) {
             if (xrRenderer == null) {
@@ -1272,7 +1303,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (glPassthrough != null) {
             glPassthrough.prepareForStop();
         }
-        if (xrRenderer != null) {
+        if (xrRenderer != null && xrOwned) {
             xrRenderer.prepareForStop();
         }
 
@@ -1343,7 +1374,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             glPassthrough = null;
         }
         if (xrRenderer != null) {
-            xrRenderer.cleanup();
+            if (xrOwned) {
+                xrRenderer.cleanup();
+            }
             xrRenderer = null;
         }
     }
@@ -1488,7 +1521,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 }
 
                 float decodeTimeMs = (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
-                long rttInfo = MoonBridge.getEstimatedRttInfo();
+                // Sem ligacao do Moonlight o valor nativo nao significa nada
+                long rttInfo = standalone ? 0 : MoonBridge.getEstimatedRttInfo();
                 StringBuilder sb = new StringBuilder();
                 sb.append(context.getString(R.string.perf_overlay_streamdetails, initialWidth + "x" + initialHeight, fps.totalFps)).append('\n');
                 sb.append(context.getString(R.string.perf_overlay_decoder, decoder)).append('\n');

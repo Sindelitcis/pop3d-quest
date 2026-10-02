@@ -100,6 +100,8 @@ void ambiEffective(XrCtx* ctx, int* on, float* level) {
 // The whole frame, which is what the sample pass used before there was a crop
 // and what the detector always draws
 static const float AMBI_CROP_FULL[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+// Side by side: only the left eye's half of the frame is worth sampling
+static const float AMBI_CROP_LEFT_HALF[4] = { 0.0f, 0.0f, 0.5f, 1.0f };
 
 // One edge of the hysteresis. The crop grows only once a larger bar has held
 // for AMBI_BAR_APPLY ticks, and then only to the smallest of them, so a dark
@@ -248,7 +250,8 @@ void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glUniformMatrix4fv(ctx->ambiTexMatrixUniform, 1, GL_FALSE, texMatrix);
-    glUniform4fv(ctx->ambiCropUniform, 1, AMBI_CROP_FULL);
+    glUniform4fv(ctx->ambiCropUniform, 1,
+                 ctx->stereoMode == DEPTH_MODE_SBS ? AMBI_CROP_LEFT_HALF : AMBI_CROP_FULL);
     // The current frame whole. Both the crop, which would hide the bars being
     // looked for, and the smoothing, which would drag old ones in for ten
     // frames after a cut, are off for this one draw.
@@ -304,8 +307,22 @@ void runFrameColorSample(XrCtx* ctx, const float* texMatrix) {
     // come from the picture rather than from the bars around it. With the
     // detection off the crop is not applied, but the state it found is kept,
     // so turning it back on picks up where it was.
-    glUniform4fv(ctx->ambiCropUniform, 1,
-                 ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL);
+    if (ctx->stereoMode == DEPTH_MODE_SBS) {
+        // The detector looked at the left half alone, so its crop is in
+        // that half's units and is squeezed into the left half of the frame
+        float c[4] = { 0.0f, 0.0f, 0.5f, 1.0f };
+        if (ctx->ambiBarDetect) {
+            c[0] = ctx->ambiCrop[0] * 0.5f;
+            c[1] = ctx->ambiCrop[1];
+            c[2] = ctx->ambiCrop[2] * 0.5f;
+            c[3] = ctx->ambiCrop[3];
+        }
+        glUniform4fv(ctx->ambiCropUniform, 1, c);
+    }
+    else {
+        glUniform4fv(ctx->ambiCropUniform, 1,
+                     ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL);
+    }
 
     // Mixed into what is already there rather than replacing it. A cut to a
     // different scene would otherwise strobe the whole glow in one frame,

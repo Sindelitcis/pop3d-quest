@@ -304,9 +304,9 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         // The swap toggle reroutes which half each eye sees. Any stereo
         // inversion bug found later is then depth or warp, not routing
         int half = view->eyeSwap ? (1 - eye) : eye;
-        subImage.imageRect.offset.x = view->stereo ? half * ctx->videoWidth : 0;
+        subImage.imageRect.offset.x = view->stereo ? half * ctx->eyeWidth : 0;
         subImage.imageRect.offset.y = 0;
-        subImage.imageRect.extent.width = ctx->videoWidth;
+        subImage.imageRect.extent.width = ctx->eyeWidth;
         subImage.imageRect.extent.height = ctx->videoHeight;
         subImage.imageArrayIndex = 0;
 
@@ -335,7 +335,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         }
         else {
             XrCompositionLayerQuad* quad = &layers->video[eye];
-            quadLayer(quad, layers->sharpenChain, 0, ctx->swapchain, ctx->videoWidth,
+            quadLayer(quad, layers->sharpenChain, 0, ctx->swapchain, ctx->eyeWidth,
                       ctx->videoHeight, view->space, view->screenPose, view->screenWidth,
                       view->screenHeight);
             quad->eyeVisibility = visibility;
@@ -622,7 +622,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                         && !ctx->cylinderSupported) {
                     continue;
                 }
-                if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+                if (ctx->cogTab == COG_TAB_3D && (ctx->stereoMode == DEPTH_MODE_OFF || ctx->stereoMode == DEPTH_MODE_SBS)) {
                     continue;
                 }
                 // Which on the display tab is every row but the level one,
@@ -764,6 +764,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         return;
     }
 
+    if (ctx->remoteMode) {
+        // The pc's layers and nothing else: none of the furniture below runs
+        float remoteMatrix[16];
+        memset(remoteMatrix, 0, sizeof(remoteMatrix));
+        if (newFrame) {
+            (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, remoteMatrix);
+        }
+        ctx->passthrough = passthrough;
+        remoteEndFrame(ctx, newFrame, remoteMatrix);
+        return;
+    }
+
     ctx->passthrough = passthrough;
     ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
@@ -801,7 +813,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
 
     FrameView view;
-    view.aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    view.aspect = (float)ctx->videoHeight / (float)ctx->eyeWidth;
     view.stereo = ctx->stereoMode != DEPTH_MODE_OFF;
     int roomStyle = roomEffective(ctx);
     view.roomOn = roomStyle > 0;

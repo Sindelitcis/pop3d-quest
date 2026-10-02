@@ -161,6 +161,13 @@ static int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR*
     return 1;
 }
 
+// The same upload for the remote monitor mode, whose textures arrive already in
+// the order a texture wants (bottom row first)
+int uploadArtImage(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                   const unsigned char* px, int width, int height) {
+    return uploadArt(ctx, chain, images, px, width, height);
+}
+
 // Rows arrive bottom up, so a photo uploaded as it comes would put the sky
 // underfoot
 static int uploadFlipped(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,

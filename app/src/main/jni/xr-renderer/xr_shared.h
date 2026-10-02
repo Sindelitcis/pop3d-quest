@@ -35,6 +35,9 @@
 #define DEPTH_MODE_SHIFTTEST 5
 // Real depth from the MiDaS model, run in Java on LiteRT
 #define DEPTH_MODE_MODEL 6
+// Frame is already stereo, left half and right half side by side. Rendered
+// like OFF (one full width draw) and split per eye in the layers
+#define DEPTH_MODE_SBS 7
 
 // The depth model's input and output are square at this size
 #define DEPTH_TEX_SIZE 256
@@ -79,6 +82,38 @@
 #define SETTING_AMBI_LEVEL 6
 #define SETTING_ROOM_LIGHT 7
 #define SETTING_HEAD_LOCK 8
+
+// Remote monitor mode (Estudio 3D): the float array nativeRemoteInput fills once
+// a frame for the activity to turn into an ENTRADA message. State is 0 hidden,
+// 1 visible, 2 focused. Poses are in the LOCAL reference space, quaternions
+// x y z w. The head block is valid flag, position, rotation. Each hand block
+// is valid flag, aim position, aim rotation, trigger, squeeze, A or X, B or Y,
+// thumbstick x and y.
+#define RIN_STATE 0
+#define RIN_RECENTERED 1
+#define RIN_HEAD 2
+#define RIN_HAND_STRIDE 14
+#define RIN_LEFT 10
+#define RIN_RIGHT 24
+#define RIN_SLOTS 38
+
+// One layer of the list the PC sends, flattened for the trip into native code
+#define RL_KIND 0
+#define RL_EYE 1
+#define RL_ALPHA 2
+#define RL_RECT 3
+#define RL_POS 7
+#define RL_ROT 10
+#define RL_SIZE 14
+#define RL_RADIUS 14
+#define RL_ANGLE 15
+#define RL_ASPECT 16
+#define RL_HAND 17
+#define RL_POINT 18
+#define RL_STRIDE 24
+#define RL_KIND_QUAD 0
+#define RL_KIND_CYLINDER 1
+#define RL_KIND_LASER 2
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0

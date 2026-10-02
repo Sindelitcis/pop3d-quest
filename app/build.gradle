@@ -164,7 +164,7 @@ android {
                 }
             }
 
-            applicationId "com.gilleece.moonlightxr"
+            applicationId "br.estudio3d.quest"
             dimension "root"
             buildConfigField "boolean", "ROOT_BUILD", "false"
         }

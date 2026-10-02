@@ -445,7 +445,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // Mono is a single full width draw with zero disparity. Stereo draws the
     // left eye into the left half and the right eye into the right half,
     // with opposite disparity signs
-    int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
+    int eyes = (ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoMode != DEPTH_MODE_SBS) ? 2 : 1;
 
     // The unwarped frame, drawn first so the real eye passes overwrite it and
     // the submitted frame is unaffected. Readback and file writes stall the

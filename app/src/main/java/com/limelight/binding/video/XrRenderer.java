@@ -26,10 +26,14 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
 
 import static com.limelight.binding.video.XrShared.*;
 
@@ -224,7 +228,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
                                    boolean ambilight, int ambiLevel, boolean roomLight,
-                                   int envResTier);
+                                   int envResTier, boolean remote);
+    // Remote monitor mode
+    private native void nativeRemoteInput(long ctx, float[] out);
+    private native void nativeRemoteSetLayers(long ctx, String[] ids, float[] data, int count);
+    private native void nativeRemoteUploadTexture(long ctx, String id, ByteBuffer rgba,
+                                                  int width, int height);
+    private native void nativeRemoteResizeVideo(long ctx, int width, int height);
+    private native void nativeRemoteHaptic(long ctx, int hand, float amplitude, long durationMs);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -294,7 +305,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
                         prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
-                        prefs.vrEnvResTier);
+                        prefs.vrEnvResTier, false);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -363,6 +374,380 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         LimeLog.info("XR renderer initialized at "+videoWidth+"x"+videoHeight);
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Remote monitor mode (Estudio 3D). The PC sends textures and the full list
+    // of layers to draw; this side keeps the OpenXR session alive, shows what it
+    // was told to and reports the head and controllers back every frame.
+
+    /** Called on the frame loop thread with the RIN_ slots, once per frame. */
+    public interface RemoteListener {
+        void onRemoteInput(float[] in);
+    }
+
+    private static final String TAG_REMOTE = "Estudio3D: ";
+    private static final int REMOTE_MAX_TEXTURES = 48;
+    private static final int RL_MAX = 48;
+
+    private RemoteListener remoteListener;
+    private final float[] remoteIn = new float[RIN_SLOTS];
+    private volatile int remoteVideoW, remoteVideoH;
+    private int appliedVideoW, appliedVideoH;
+    private final CountDownLatch surfaceLatch = new CountDownLatch(1);
+
+    // One per texture id. The newest pixels stay here (already in the bottom
+    // row first order GL wants) so a session that has to be rebuilt can have
+    // them all uploaded again without the PC resending anything.
+    private static final class TexSlot {
+        final Object lock = new Object();
+        ByteBuffer current;
+        ByteBuffer spare;
+        int w, h;
+        boolean dirty;
+    }
+    private final ConcurrentHashMap<String, TexSlot> texSlots = new ConcurrentHashMap<>();
+
+    private final Object layerLock = new Object();
+    private String[] lastLayerIds = new String[0];
+    private float[] lastLayerData = new float[0];
+    private int lastLayerCount;
+
+    public boolean isRemote() {
+        return remoteListener != null;
+    }
+
+    /**
+     * Starts the session in remote monitor mode. Returns at once: the thread
+     * keeps trying to bring the session up, and back up again if the system
+     * ends it, for as long as the app lives.
+     */
+    public boolean startRemote(final Activity activity, int videoWidth, int videoHeight,
+                               final PreferenceConfiguration prefs, RemoteListener listener) {
+        remoteListener = listener;
+        remoteVideoW = appliedVideoW = videoWidth;
+        remoteVideoH = appliedVideoH = videoHeight;
+        prefsContext = activity.getApplicationContext();
+        prefConfig = prefs;
+
+        renderThread = new Thread() {
+            @Override
+            public void run() {
+                try {
+                    runRemoteSession(activity, prefs);
+                } finally {
+                    finishRenderThread();
+                }
+            }
+        };
+        renderThread.setName("Video - XR Renderer");
+        renderThread.start();
+        return true;
+    }
+
+    /** Waits for the SurfaceTexture the decoder renders into to exist. */
+    public boolean waitForSurface(long timeoutMs) {
+        try {
+            return surfaceLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void runRemoteSession(Activity activity, PreferenceConfiguration prefs) {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY);
+        nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
+
+        while (!stopping) {
+            long ctx = nativeInit(activity, remoteVideoW, remoteVideoH, DEPTH_MODE_OFF,
+                    false, prefs.vrConvergence, prefs.vrDepthScale, false, 0, false,
+                    false, 0, false, prefs.vrEnvResTier, true);
+            if (ctx == 0) {
+                LimeLog.warning(TAG_REMOTE + "sessao OpenXR nao subiu, nova tentativa em 2 s");
+                sleepQuietly(2000);
+                continue;
+            }
+            nativeCtx = ctx;
+            appliedVideoW = remoteVideoW;
+            appliedVideoH = remoteVideoH;
+            LimeLog.info(TAG_REMOTE + "sessao OpenXR criada (video " + appliedVideoW + "x"
+                    + appliedVideoH + ")");
+
+            // The EGL context is current on this thread now, so the
+            // SurfaceTexture attaches to it here. A rebuilt session keeps the
+            // same SurfaceTexture, and with it the decoder's Surface.
+            int texId = nativeGetTexId(ctx);
+            if (surfaceTexture == null) {
+                surfaceTexture = new SurfaceTexture(texId);
+                surfaceTexture.setDefaultBufferSize(appliedVideoW, appliedVideoH);
+                surfaceTexture.setOnFrameAvailableListener(XrRenderer.this);
+                inputSurface = new Surface(surfaceTexture);
+                surfaceLatch.countDown();
+            }
+            else {
+                try {
+                    surfaceTexture.attachToGLContext(texId);
+                } catch (RuntimeException e) {
+                    LimeLog.warning(TAG_REMOTE + "attachToGLContext: " + e);
+                }
+            }
+
+            // Everything the new session has not seen yet goes up again
+            for (TexSlot slot : texSlots.values()) {
+                synchronized (slot.lock) {
+                    slot.dirty = slot.current != null;
+                }
+            }
+            pushLastLayers();
+
+            runRemoteFrameLoop();
+
+            if (!stopping) {
+                LimeLog.warning(TAG_REMOTE + "sessao OpenXR terminou, a recriar quando der");
+                try {
+                    surfaceTexture.detachFromGLContext();
+                } catch (RuntimeException e) {
+                    LimeLog.warning(TAG_REMOTE + "detachFromGLContext: " + e);
+                }
+            }
+            synchronized (nativeLock) {
+                long c = nativeCtx;
+                nativeCtx = 0;
+                nativeDestroy(c);
+            }
+            if (!stopping) {
+                sleepQuietly(800);
+            }
+        }
+    }
+
+    private static void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void runRemoteFrameLoop() {
+        long lastIdleInput = 0;
+        while (!stopping) {
+            int r = nativeWaitBeginFrame(nativeCtx);
+            if (r == FRAME_EXIT) {
+                return;
+            }
+            if (r == FRAME_IDLE) {
+                // The session is not running (headset off, system menu...): the
+                // pc still hears about it, just not at frame rate
+                long now = System.nanoTime();
+                if (now - lastIdleInput > 200000000L) {
+                    lastIdleInput = now;
+                    nativeRemoteInput(nativeCtx, remoteIn);
+                    remoteListener.onRemoteInput(remoteIn);
+                }
+                continue;
+            }
+
+            int w = remoteVideoW, h = remoteVideoH;
+            if (w != appliedVideoW || h != appliedVideoH) {
+                nativeRemoteResizeVideo(nativeCtx, w, h);
+                surfaceTexture.setDefaultBufferSize(w, h);
+                appliedVideoW = w;
+                appliedVideoH = h;
+                pendingFrames.set(0);
+            }
+
+            for (Map.Entry<String, TexSlot> e : texSlots.entrySet()) {
+                TexSlot slot = e.getValue();
+                synchronized (slot.lock) {
+                    if (slot.dirty && slot.current != null) {
+                        slot.dirty = false;
+                        slot.current.rewind();
+                        nativeRemoteUploadTexture(nativeCtx, e.getKey(), slot.current,
+                                slot.w, slot.h);
+                    }
+                }
+            }
+
+            nativeRemoteInput(nativeCtx, remoteIn);
+            remoteListener.onRemoteInput(remoteIn);
+
+            boolean newFrame = pendingFrames.getAndSet(0) > 0;
+            if (newFrame) {
+                surfaceTexture.updateTexImage();
+                surfaceTexture.getTransformMatrix(texMatrix);
+                videoFrameIndex++;
+                estFrames++;
+            }
+            long now = System.nanoTime();
+            if (estStartNs == 0) {
+                estStartNs = now;
+            }
+            else if (now - estStartNs >= 1000000000L) {
+                LimeLog.info(TAG_REMOTE + String.format(java.util.Locale.US,
+                        "%.1f quadros de video/s apresentados pelo XR", estFrames * 1e9
+                                / (now - estStartNs)));
+                estFrames = 0;
+                estStartNs = now;
+            }
+
+            nativeEndFrame(nativeCtx, newFrame, texMatrix, 0.0f, 0.0f, 0.0f, false, 0.0f, false,
+                    passthroughOn);
+        }
+    }
+
+    /** The complete list of layers to show, replacing the previous one. */
+    public void remoteSetLayers(String[] ids, float[] data, int count) {
+        synchronized (layerLock) {
+            lastLayerIds = ids;
+            lastLayerData = data;
+            lastLayerCount = count;
+        }
+        synchronized (nativeLock) {
+            if (nativeCtx != 0) {
+                nativeRemoteSetLayers(nativeCtx, ids, data, count);
+            }
+        }
+    }
+
+    private void pushLastLayers() {
+        synchronized (layerLock) {
+            synchronized (nativeLock) {
+                if (nativeCtx != 0) {
+                    nativeRemoteSetLayers(nativeCtx, lastLayerIds, lastLayerData, lastLayerCount);
+                }
+            }
+        }
+    }
+
+    /** Decoded picture size, which the video texture follows. */
+    public void remoteSetVideoSize(int width, int height) {
+        remoteVideoW = width;
+        remoteVideoH = height;
+    }
+
+    public void remoteSetPassthrough(boolean on) {
+        passthroughOn = on;
+    }
+
+    public void remoteHaptic(int hand, float amplitude, long durationMs) {
+        synchronized (nativeLock) {
+            if (nativeCtx != 0) {
+                nativeRemoteHaptic(nativeCtx, hand, amplitude, durationMs);
+            }
+        }
+    }
+
+    public boolean isCylinderSupported() {
+        synchronized (nativeLock) {
+            return nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
+        }
+    }
+
+    private ByteBuffer slotBuffer(TexSlot slot, int bytes) {
+        synchronized (slot.lock) {
+            ByteBuffer b = slot.spare;
+            slot.spare = null;
+            if (b != null && b.capacity() == bytes) {
+                b.clear();
+                return b;
+            }
+        }
+        return ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
+    }
+
+    private void commitTexture(String id, int w, int h, ByteBuffer buf) {
+        TexSlot slot = texSlots.get(id);
+        if (slot == null) {
+            return;
+        }
+        synchronized (slot.lock) {
+            ByteBuffer old = slot.current;
+            slot.current = buf;
+            slot.spare = old;
+            slot.w = w;
+            slot.h = h;
+            slot.dirty = true;
+        }
+    }
+
+    private TexSlot slotFor(String id) {
+        TexSlot slot = texSlots.get(id);
+        if (slot == null) {
+            if (texSlots.size() >= REMOTE_MAX_TEXTURES) {
+                LimeLog.warning(TAG_REMOTE + "texturas demais, ignorando " + id);
+                return null;
+            }
+            slot = new TexSlot();
+            TexSlot prev = texSlots.putIfAbsent(id, slot);
+            if (prev != null) {
+                slot = prev;
+            }
+        }
+        return slot;
+    }
+
+    /**
+     * A TEXTURA from the PC: zlib compressed RGBA8, top row first. Inflated a
+     * row at a time into a buffer that holds the rows bottom first, which is
+     * how a GL texture wants them, so no flip is needed later.
+     */
+    public boolean remoteReceiveTexture(String id, int w, int h, byte[] z, int off, int len) {
+        if (w <= 0 || h <= 0 || w > 8192 || h > 8192) {
+            LimeLog.warning(TAG_REMOTE + "textura " + id + " com tamanho invalido " + w + "x" + h);
+            return false;
+        }
+        TexSlot slot = slotFor(id);
+        if (slot == null) {
+            return false;
+        }
+        int stride = w * 4;
+        ByteBuffer buf = slotBuffer(slot, stride * h);
+        byte[] row = new byte[stride];
+        boolean ok = false;
+        // zlib is what the protocol says; a bare deflate stream is accepted too
+        for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+            Inflater inf = new Inflater(attempt == 1);
+            try {
+                inf.setInput(z, off, len);
+                ok = true;
+                for (int y = 0; y < h && ok; y++) {
+                    int got = 0;
+                    while (got < stride) {
+                        int n = inf.inflate(row, got, stride - got);
+                        if (n == 0 && (inf.finished() || inf.needsInput() || inf.needsDictionary())) {
+                            ok = false;
+                            break;
+                        }
+                        got += n;
+                    }
+                    if (ok) {
+                        buf.position((h - 1 - y) * stride);
+                        buf.put(row, 0, stride);
+                    }
+                }
+            } catch (DataFormatException e) {
+                ok = false;
+            } finally {
+                inf.end();
+            }
+        }
+        if (!ok) {
+            LimeLog.warning(TAG_REMOTE + "textura " + id + ": dados zlib invalidos ou curtos");
+            return false;
+        }
+        buf.rewind();
+        commitTexture(id, w, h, buf);
+        return true;
+    }
+
+    /** A texture already in memory in GL order (bottom row first), e.g. drawn locally. */
+    public void remoteSetRawTexture(String id, int w, int h, ByteBuffer glOrderPixels) {
+        if (slotFor(id) != null) {
+            glOrderPixels.rewind();
+            commitTexture(id, w, h, glOrderPixels);
+        }
     }
 
     /**
@@ -517,6 +902,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         depthThread = null;
     }
 
+    private long estFrames, estStartNs;
+
     private void runFrameLoop(PreferenceConfiguration prefs) {
         float distance = prefs.vrDistance / 10.0f;
         float quadWidth = prefs.vrScreenSize / 10.0f;
@@ -582,6 +969,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     }
                 }
                 videoFrameIndex++;
+                // Once a second in logcat, so a stream can be judged over adb
+                estFrames++;
+                long estNow = System.nanoTime();
+                if (estStartNs == 0) {
+                    estStartNs = estNow;
+                }
+                else if (estNow - estStartNs >= 1000000000L) {
+                    LimeLog.info("Estudio3D: " + String.format("%.1f", estFrames * 1e9
+                            / (estNow - estStartNs)) + " quadros/s apresentados pelo XR");
+                    estFrames = 0;
+                    estStartNs = estNow;
+                }
             }
             // Upload here rather than from the reporting thread, since this is
             // the thread that owns the GL context
@@ -730,7 +1129,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
         }
         // Same for the 3D rows with stereo turned off in settings
-        boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
+        boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF
+                && prefConfig.vrDepthMode != XrShared.DEPTH_MODE_SBS;
         ByteBuffer[] tabs = panels.buildCogTabs(curveOk, stereoOk);
         pendingCogScreenTab.set(tabs[0]);
         pendingCogDisplayTab.set(tabs[1]);
