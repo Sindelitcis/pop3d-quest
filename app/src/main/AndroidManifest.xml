@@ -106,7 +106,7 @@
         <!-- Meta Quest device gate for the VR activity -->
         <meta-data
             android:name="com.oculus.supportedDevices"
-            android:value="quest2|questpro|quest3" />
+            android:value="quest2|questpro|quest3|quest3s" />
 
         <provider
             android:name=".PosterContentProvider"
@@ -248,7 +248,7 @@
              olho. Mesmos atributos VR do GameXR, mas e o icone (launcher) -->
         <activity
             android:name=".EstudioActivity"
-            android:label="Estúdio 3D"
+            android:label="@string/app_label"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
             android:resizeableActivity="false"
             android:enableOnBackInvokedCallback="false"
