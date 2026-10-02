@@ -1083,13 +1083,29 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         p.setTextAlign(Paint.Align.CENTER);
         p.setColor(Color.WHITE);
         p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        // Idioma do \u00f3culos: portugu\u00eas, espanhol ou (o resto) ingl\u00eas
+        String lingua = Locale.getDefault().getLanguage();
+        String[] t = "pt".equals(lingua)
+                ? new String[] {"Procurando o seu PC\u2026", "Abra o Pop3D no computador (mesmo Wi-Fi)",
+                                "Ainda n\u00e3o tem? Baixe gr\u00e1tis em:"}
+                : "es".equals(lingua)
+                ? new String[] {"Buscando tu PC\u2026", "Abre Pop3D en la computadora (misma Wi-Fi)",
+                                "\u00bfA\u00fan no lo tienes? Desc\u00e1rgalo gratis en:"}
+                : new String[] {"Looking for your PC\u2026", "Open Pop3D on your computer (same Wi-Fi)",
+                                "Don't have it yet? Get it free at:"};
         p.setTextSize(92);
-        c.drawText("Procurando o seu PC\u2026", PAINEL_W / 2f, 280, p);
+        c.drawText(t[0], PAINEL_W / 2f, 230, p);
         p.setTypeface(Typeface.DEFAULT);
         p.setColor(0xFFC9D4EA);
         p.setTextSize(48);
-        c.drawText("Abra o Est\u00fadio 3D no computador", PAINEL_W / 2f, 390, p);
-        c.drawText("(mesmo Wi-Fi)", PAINEL_W / 2f, 455, p);
+        c.drawText(t[1], PAINEL_W / 2f, 340, p);
+        p.setColor(0xFF8E9AB5);
+        p.setTextSize(40);
+        c.drawText(t[2], PAINEL_W / 2f, 460, p);
+        p.setColor(0xFF7FB0FF);
+        p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        p.setTextSize(48);
+        c.drawText("sindelitcis.github.io/pop3d", PAINEL_W / 2f, 530, p);
         ByteBuffer buf = ByteBuffer.allocateDirect(PAINEL_W * PAINEL_H * 4)
                 .order(ByteOrder.nativeOrder());
         bmp.copyPixelsToBuffer(buf);
