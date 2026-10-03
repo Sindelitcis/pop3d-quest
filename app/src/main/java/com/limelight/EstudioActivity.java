@@ -6,7 +6,9 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.content.res.AssetFileDescriptor;
 import android.graphics.Typeface;
+import android.media.MediaPlayer;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -218,6 +220,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
             }
         }
         envios.shutdownNow();
+        pararDemo();
         pararAudio();
         destruirDecoder();
         if (xr != null) {
@@ -500,6 +503,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
     // Video
 
     private void tratarVideoConfig(byte[] p) {
+        pararDemo();   // o PC de verdade chegou: a superficie de video volta a ser dele
         try {
             JSONObject j = new JSONObject(new String(p, StandardCharsets.UTF_8));
             int l = j.optInt("largura", 3840);
@@ -830,6 +834,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
     }
 
     private void tratarCamadas(byte[] p) {
+        pararDemo();
         XrRenderer sessao = xr;
         if (sessao == null) {
             return;
@@ -1042,13 +1047,32 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
             if (in[RIN_RECENTERED] != 0) {
                 precisaPainel = true;
             }
-            // Gatilho de qualquer controle: pede ao despertador do PC para abrir o Pop3D
-            boolean gatilho = in[RIN_STATE] >= 2 && (in[RIN_LEFT + 8] > 0.5f || in[RIN_RIGHT + 8] > 0.5f);
-            if (gatilho && !gatilhoAntes) {
-                acordarPc();
+            boolean focado = in[RIN_STATE] >= 2;
+            boolean gatilho = focado && (in[RIN_LEFT + 8] > 0.5f || in[RIN_RIGHT + 8] > 0.5f);
+            boolean botaoA = focado && (in[RIN_LEFT + 10] > 0.5f || in[RIN_RIGHT + 10] > 0.5f);
+            boolean botaoB = focado && (in[RIN_LEFT + 11] > 0.5f || in[RIN_RIGHT + 11] > 0.5f);
+            if (demo != null) {
+                // Demonstracao tocando: B (ou Y) volta para o painel; tirar o oculos pausa
+                if (botaoB && !botaoBAntes) {
+                    pararDemo();
+                    precisaPainel = true;
+                } else {
+                    pausarDemo(in[RIN_STATE] < 1);
+                }
+            } else {
+                // Gatilho de qualquer controle: pede ao despertador do PC para abrir o Pop3D
+                if (gatilho && !gatilhoAntes) {
+                    acordarPc();
+                }
+                // A (ou X): demonstracao em 3D embutida no app, sem PC (para ver o que o Pop3D faz)
+                if (botaoA && !botaoAAntes && in[RIN_HEAD] != 0) {
+                    iniciarDemo(in);
+                }
             }
             gatilhoAntes = gatilho;
-            if (precisaPainel && in[RIN_HEAD] != 0) {
+            botaoAAntes = botaoA;
+            botaoBAntes = botaoB;
+            if (demo == null && precisaPainel && in[RIN_HEAD] != 0) {
                 precisaPainel = false;
                 mostrarPainelLocal(in);
             }
@@ -1061,6 +1085,171 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         // isso nao faz o painel piscar.
         recebeuCamadas = false;
         conectado = true;
+    }
+
+    // ------------------------------------------------------------------
+    // Demonstracao embutida: um trecho de filme ja em 3D (Full SBS, convertido
+    // pelo Pop3D no PC), tocado pelo MediaPlayer direto na superficie de video do
+    // XR. Serve para quem ainda nao tem o PC pronto (e para a analise da loja).
+
+    private static final String TEX_DEMO = "_demo";
+    private volatile MediaPlayer demo;
+    private boolean demoPausada;
+    private boolean botaoAAntes, botaoBAntes;
+
+    private void iniciarDemo(float[] in) {
+        final XrRenderer sessao = xr;
+        if (sessao == null || recebeuCamadas) {
+            return;
+        }
+        final float[] cabeca = in.clone();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    destruirDecoder();   // a superficie so aceita um produtor por vez
+                    sessao.remoteSetVideoSize(3840, 1080);
+                    if (!sessao.waitForSurface(5000)) {
+                        return;
+                    }
+                    MediaPlayer mp = new MediaPlayer();
+                    AssetFileDescriptor afd = getAssets().openFd("demo3d.mp4");
+                    mp.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+                    afd.close();
+                    mp.setSurface(sessao.getInputSurface());
+                    mp.setLooping(true);
+                    mp.prepare();
+                    if (recebeuCamadas) {   // o PC conectou enquanto preparava
+                        mp.release();
+                        return;
+                    }
+                    demo = mp;
+                    demoPausada = false;
+                    mp.start();
+                    montarPainelDemo();
+                    mostrarDemo(cabeca);
+                    LimeLog.info(TAG + "demonstracao tocando");
+                } catch (Exception e) {
+                    LimeLog.warning(TAG + "demonstracao: " + e);
+                    pararDemo();
+                    precisaPainel = true;
+                }
+            }
+        }, "Pop3D - demonstracao").start();
+    }
+
+    private void pausarDemo(boolean pausar) {
+        MediaPlayer mp = demo;
+        if (mp == null || pausar == demoPausada) {
+            return;
+        }
+        demoPausada = pausar;
+        try {
+            if (pausar) {
+                mp.pause();
+            } else {
+                mp.start();
+            }
+        } catch (IllegalStateException ignored) {
+        }
+    }
+
+    private void pararDemo() {
+        MediaPlayer mp = demo;
+        demo = null;
+        if (mp == null) {
+            return;
+        }
+        try {
+            mp.stop();
+        } catch (IllegalStateException ignored) {
+        }
+        mp.setSurface(null);
+        mp.release();
+        XrRenderer sessao = xr;
+        if (sessao != null && !recebeuCamadas) {
+            sessao.remoteSetLayers(new String[0], new float[0], 0);
+        }
+        LimeLog.info(TAG + "demonstracao parada");
+    }
+
+    // Tela de cinema a 3 m (3,6 m de largura, olho esquerdo/direito de cada metade
+    // do quadro lado a lado) e, logo abaixo, os creditos e como voltar.
+    private void mostrarDemo(float[] in) {
+        XrRenderer sessao = xr;
+        if (sessao == null) {
+            return;
+        }
+        float hx = in[RIN_HEAD + 1], hy = in[RIN_HEAD + 2], hz = in[RIN_HEAD + 3];
+        float qx = in[RIN_HEAD + 4], qy = in[RIN_HEAD + 5], qz = in[RIN_HEAD + 6],
+                qw = in[RIN_HEAD + 7];
+        float fx = -2f * (qx * qz + qw * qy);
+        float fz = -(1f - 2f * (qx * qx + qy * qy));
+        double giro = Math.hypot(fx, fz) > 0.2 ? Math.atan2(-fx, -fz) : 0.0;
+        float sx = (float) -Math.sin(giro), sz = (float) -Math.cos(giro);
+        float rotY = (float) Math.sin(giro / 2), rotW = (float) Math.cos(giro / 2);
+        String[] ids = new String[] { "video", "video", TEX_DEMO };
+        float[] d = new float[3 * RL_STRIDE];
+        for (int olho = 0; olho < 2; olho++) {
+            int o = olho * RL_STRIDE;
+            d[o + RL_KIND] = RL_KIND_QUAD;
+            d[o + RL_EYE] = olho + 1;
+            d[o + RL_RECT] = olho * 1920;
+            d[o + RL_RECT + 2] = 1920;
+            d[o + RL_RECT + 3] = 1080;
+            d[o + RL_POS] = hx + sx * 3.0f;
+            d[o + RL_POS + 1] = hy;
+            d[o + RL_POS + 2] = hz + sz * 3.0f;
+            d[o + RL_ROT + 1] = rotY;
+            d[o + RL_ROT + 3] = rotW;
+            d[o + RL_SIZE] = 3.6f;
+            d[o + RL_SIZE + 1] = 2.025f;
+        }
+        int o = 2 * RL_STRIDE;
+        d[o + RL_KIND] = RL_KIND_QUAD;
+        d[o + RL_ALPHA] = 2; // pre-multiplicada: vem de um Bitmap do Android
+        d[o + RL_POS] = hx + sx * 1.6f;
+        d[o + RL_POS + 1] = hy - 0.66f;
+        d[o + RL_POS + 2] = hz + sz * 1.6f;
+        d[o + RL_ROT + 1] = rotY;
+        d[o + RL_ROT + 3] = rotW;
+        d[o + RL_SIZE] = 1.1f;
+        d[o + RL_SIZE + 1] = 1.1f * 180f / 1280f;
+        sessao.remoteSetLayers(ids, d, 3);
+    }
+
+    private void montarPainelDemo() {
+        int w = 1280, h = 180;
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        c.translate(0f, h);
+        c.scale(1f, -1f);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xE6141C2B);
+        c.drawRoundRect(new RectF(4, 4, w - 4, h - 4), 40, 40, p);
+        p.setTextAlign(Paint.Align.CENTER);
+        String lingua = Locale.getDefault().getLanguage();
+        String[] t = "pt".equals(lingua)
+                ? new String[] {"Demonstração em 3D, convertida pelo Pop3D no PC",
+                                "Aperte B para voltar  ·  Big Buck Bunny © Blender Foundation (CC BY 3.0)"}
+                : "es".equals(lingua)
+                ? new String[] {"Demostración en 3D, convertida por Pop3D en la PC",
+                                "Aprieta B para volver  ·  Big Buck Bunny © Blender Foundation (CC BY 3.0)"}
+                : new String[] {"3D demo, converted by Pop3D on the PC",
+                                "Press B to go back  ·  Big Buck Bunny © Blender Foundation (CC BY 3.0)"};
+        p.setColor(Color.WHITE);
+        p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        p.setTextSize(48);
+        c.drawText(t[0], w / 2f, 78, p);
+        p.setTypeface(Typeface.DEFAULT);
+        p.setColor(0xFFC9D4EA);
+        p.setTextSize(34);
+        c.drawText(t[1], w / 2f, 140, p);
+        ByteBuffer buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder());
+        bmp.copyPixelsToBuffer(buf);
+        buf.rewind();
+        bmp.recycle();
+        xr.remoteSetRawTexture(TEX_DEMO, w, h, buf);
     }
 
     private void aoDesconectar() {
@@ -1169,18 +1358,21 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
                                 "Ainda n\u00e3o tem? Baixe gr\u00e1tis em:",
                                 "Aperte o gatilho para abrir o Pop3D no PC",
                                 "Abrindo o Pop3D no PC\u2026 aguarde",
-                                "O PC n\u00e3o respondeu: ligue o PC e abra o Pop3D nele"}
+                                "O PC n\u00e3o respondeu: ligue o PC e abra o Pop3D nele",
+                                "Bot\u00e3o A: ver uma demonstra\u00e7\u00e3o em 3D"}
                 : "es".equals(lingua)
                 ? new String[] {"Buscando tu PC\u2026", "Abre Pop3D en la computadora (misma Wi-Fi)",
                                 "\u00bfA\u00fan no lo tienes? Desc\u00e1rgalo gratis en:",
                                 "Aprieta el gatillo para abrir Pop3D en la PC",
                                 "Abriendo Pop3D en la PC\u2026 espera",
-                                "La PC no respondi\u00f3: enci\u00e9ndela y abre Pop3D en ella"}
+                                "La PC no respondi\u00f3: enci\u00e9ndela y abre Pop3D en ella",
+                                "Bot\u00f3n A: ver una demostraci\u00f3n en 3D"}
                 : new String[] {"Looking for your PC\u2026", "Open Pop3D on your computer (same Wi-Fi)",
                                 "Don't have it yet? Get it free at:",
                                 "Press the trigger to open Pop3D on your PC",
                                 "Opening Pop3D on your PC\u2026 please wait",
-                                "Your PC didn't answer: turn it on and open Pop3D there"};
+                                "Your PC didn't answer: turn it on and open Pop3D there",
+                                "Button A: watch a 3D demo"};
         p.setTextSize(88);
         c.drawText(t[0], PAINEL_W / 2f, 190, p);
         p.setTypeface(Typeface.DEFAULT);
@@ -1191,15 +1383,17 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         p.setColor(aviso == AVISO_SEM_RESPOSTA ? 0xFFFFB86B : (aviso == AVISO_ABRINDO ? 0xFF7DE3A8 : 0xFFFFFFFF));
         p.setTextSize(44);
-        c.drawText(t[3 + aviso], PAINEL_W / 2f, 380, p);
+        c.drawText(t[3 + aviso], PAINEL_W / 2f, 370, p);
+        p.setColor(0xFF7DE3A8);
+        c.drawText(t[6], PAINEL_W / 2f, 438, p);
         p.setTypeface(Typeface.DEFAULT);
         p.setColor(0xFF8E9AB5);
-        p.setTextSize(38);
-        c.drawText(t[2], PAINEL_W / 2f, 480, p);
+        p.setTextSize(36);
+        c.drawText(t[2], PAINEL_W / 2f, 518, p);
         p.setColor(0xFF7FB0FF);
         p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        p.setTextSize(46);
-        c.drawText("pop3d.quest", PAINEL_W / 2f, 548, p);
+        p.setTextSize(44);
+        c.drawText("pop3d.quest", PAINEL_W / 2f, 578, p);
         ByteBuffer buf = ByteBuffer.allocateDirect(PAINEL_W * PAINEL_H * 4)
                 .order(ByteOrder.nativeOrder());
         bmp.copyPixelsToBuffer(buf);
