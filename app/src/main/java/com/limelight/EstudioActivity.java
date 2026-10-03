@@ -81,12 +81,15 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
     private static final int MSG_CAMADAS = 0x11;
     private static final int MSG_VIBRAR = 0x12;
     private static final int MSG_FUNDO = 0x13;
+    private static final int MSG_SAIR = 0x14;
     // Quest -> PC
     private static final int MSG_COMMAND = 0x81;
     private static final int MSG_NEED_IDR = 0x82;
     private static final int MSG_ENTRADA = 0x83;
     private static final int MSG_OLA = 0x84;
-    private static final int VERSAO = 2;
+    // 3: entende SAIR (o botao "Sair do VR" fecha o app) e acorda o Pop3D do PC pelo despertador
+    private static final int VERSAO = 3;
+    private static final int PORTA_DESPERTADOR = 52299;
     // Media de no maximo ~90 ENTRADA/s (balde: a 120 Hz saem 3 de cada 4 quadros)
     private static final long ENTRADA_INTERVALO_NS = 11_000_000L;
     // ENTRADA ainda na fila de envio acima disto: a rede esta atrasada, solta
@@ -419,6 +422,16 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
                     tratarFundo(p);
                     break;
                 case MSG_STATUS:
+                    break;
+                case MSG_SAIR:
+                    // "Sair do VR" no PC: fecha o app e volta para a tela inicial da Meta
+                    LimeLog.info(TAG + "PC pediu para sair");
+                    principal.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            finishAndRemoveTask();
+                        }
+                    });
                     break;
                 default:
                     LimeLog.warning(TAG + "tipo de mensagem desconhecido " + tipo);
@@ -1029,6 +1042,12 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
             if (in[RIN_RECENTERED] != 0) {
                 precisaPainel = true;
             }
+            // Gatilho de qualquer controle: pede ao despertador do PC para abrir o Pop3D
+            boolean gatilho = in[RIN_STATE] >= 2 && (in[RIN_LEFT + 8] > 0.5f || in[RIN_RIGHT + 8] > 0.5f);
+            if (gatilho && !gatilhoAntes) {
+                acordarPc();
+            }
+            gatilhoAntes = gatilho;
             if (precisaPainel && in[RIN_HEAD] != 0) {
                 precisaPainel = false;
                 mostrarPainelLocal(in);
@@ -1055,6 +1074,7 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
             precisaPainel = true;
             sessao.remoteSetLayers(new String[0], new float[0], 0);
             sessao.remoteSetPassthrough(false);
+            desenharPainelLocal(AVISO_GATILHO);
             LimeLog.info(TAG + "camadas limpas, painel local de volta");
         }
     }
@@ -1064,8 +1084,67 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
 
     private static final int PAINEL_W = 1280;
     private static final int PAINEL_H = 640;
+    private static final int AVISO_GATILHO = 0, AVISO_ABRINDO = 1, AVISO_SEM_RESPOSTA = 2;
+    private boolean gatilhoAntes;
+    private volatile long acordouMs;
+
+    // O despertador (despertador.py, de pe desde o login do Windows) abre o Pop3D do PC. Wi-Fi: broadcast UDP;
+    // USB: 127.0.0.1 (adb reverse feito pelo proprio despertador). Responde POP3D_ABRINDO ou POP3D_ABERTO.
+    private void acordarPc() {
+        long agora = System.currentTimeMillis();
+        if (agora - acordouMs < 3000) {
+            return;
+        }
+        acordouMs = agora;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean respondeu = false;
+                byte[] pedido = "POP3D_ABRIR".getBytes(StandardCharsets.US_ASCII);
+                try {
+                    Socket usb = new Socket();
+                    usb.connect(new InetSocketAddress("127.0.0.1", PORTA_DESPERTADOR), 400);
+                    usb.setSoTimeout(1500);
+                    usb.getOutputStream().write(pedido);
+                    byte[] buf = new byte[64];
+                    respondeu = usb.getInputStream().read(buf) > 0;
+                    usb.close();
+                } catch (IOException ignored) {
+                }
+                if (!respondeu) {
+                    adquirirMulticast();
+                    DatagramSocket ds = null;
+                    try {
+                        ds = new DatagramSocket();
+                        ds.setBroadcast(true);
+                        ds.setSoTimeout(1500);
+                        ds.send(new DatagramPacket(pedido, pedido.length,
+                                InetAddress.getByName("255.255.255.255"), PORTA_DESPERTADOR));
+                        byte[] buf = new byte[64];
+                        DatagramPacket resp = new DatagramPacket(buf, buf.length);
+                        ds.receive(resp);
+                        respondeu = new String(buf, 0, resp.getLength(), StandardCharsets.US_ASCII)
+                                .startsWith("POP3D_");
+                    } catch (IOException ignored) {
+                    } finally {
+                        if (ds != null) {
+                            ds.close();
+                        }
+                    }
+                }
+                LimeLog.info(TAG + "acordar o PC: " + (respondeu ? "respondeu" : "sem resposta"));
+                if (!recebeuCamadas && xr != null) {
+                    desenharPainelLocal(respondeu ? AVISO_ABRINDO : AVISO_SEM_RESPOSTA);
+                }
+            }
+        }, "Pop3D - acordar PC").start();
+    }
 
     private void montarPainelLocal() {
+        desenharPainelLocal(AVISO_GATILHO);
+    }
+
+    private void desenharPainelLocal(int aviso) {
         Bitmap bmp = Bitmap.createBitmap(PAINEL_W, PAINEL_H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
         // Texturas sobem de baixo para cima: desenha espelhado e a carga endireita
@@ -1087,25 +1166,40 @@ public class EstudioActivity extends Activity implements XrRenderer.RemoteListen
         String lingua = Locale.getDefault().getLanguage();
         String[] t = "pt".equals(lingua)
                 ? new String[] {"Procurando o seu PC\u2026", "Abra o Pop3D no computador (mesmo Wi-Fi)",
-                                "Ainda n\u00e3o tem? Baixe gr\u00e1tis em:"}
+                                "Ainda n\u00e3o tem? Baixe gr\u00e1tis em:",
+                                "Aperte o gatilho para abrir o Pop3D no PC",
+                                "Abrindo o Pop3D no PC\u2026 aguarde",
+                                "O PC n\u00e3o respondeu: ligue o PC e abra o Pop3D nele"}
                 : "es".equals(lingua)
                 ? new String[] {"Buscando tu PC\u2026", "Abre Pop3D en la computadora (misma Wi-Fi)",
-                                "\u00bfA\u00fan no lo tienes? Desc\u00e1rgalo gratis en:"}
+                                "\u00bfA\u00fan no lo tienes? Desc\u00e1rgalo gratis en:",
+                                "Aprieta el gatillo para abrir Pop3D en la PC",
+                                "Abriendo Pop3D en la PC\u2026 espera",
+                                "La PC no respondi\u00f3: enci\u00e9ndela y abre Pop3D en ella"}
                 : new String[] {"Looking for your PC\u2026", "Open Pop3D on your computer (same Wi-Fi)",
-                                "Don't have it yet? Get it free at:"};
-        p.setTextSize(92);
-        c.drawText(t[0], PAINEL_W / 2f, 230, p);
+                                "Don't have it yet? Get it free at:",
+                                "Press the trigger to open Pop3D on your PC",
+                                "Opening Pop3D on your PC\u2026 please wait",
+                                "Your PC didn't answer: turn it on and open Pop3D there"};
+        p.setTextSize(88);
+        c.drawText(t[0], PAINEL_W / 2f, 190, p);
         p.setTypeface(Typeface.DEFAULT);
         p.setColor(0xFFC9D4EA);
-        p.setTextSize(48);
-        c.drawText(t[1], PAINEL_W / 2f, 340, p);
+        p.setTextSize(46);
+        c.drawText(t[1], PAINEL_W / 2f, 280, p);
+        // o que fazer agora (aperte o gatilho / abrindo / sem resposta), em destaque
+        p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        p.setColor(aviso == AVISO_SEM_RESPOSTA ? 0xFFFFB86B : (aviso == AVISO_ABRINDO ? 0xFF7DE3A8 : 0xFFFFFFFF));
+        p.setTextSize(44);
+        c.drawText(t[3 + aviso], PAINEL_W / 2f, 380, p);
+        p.setTypeface(Typeface.DEFAULT);
         p.setColor(0xFF8E9AB5);
-        p.setTextSize(40);
-        c.drawText(t[2], PAINEL_W / 2f, 460, p);
+        p.setTextSize(38);
+        c.drawText(t[2], PAINEL_W / 2f, 480, p);
         p.setColor(0xFF7FB0FF);
         p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        p.setTextSize(48);
-        c.drawText("pop3d.quest", PAINEL_W / 2f, 530, p);
+        p.setTextSize(46);
+        c.drawText("pop3d.quest", PAINEL_W / 2f, 548, p);
         ByteBuffer buf = ByteBuffer.allocateDirect(PAINEL_W * PAINEL_H * 4)
                 .order(ByteOrder.nativeOrder());
         bmp.copyPixelsToBuffer(buf);
