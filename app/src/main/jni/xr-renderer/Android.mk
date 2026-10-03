@@ -5,6 +5,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := xr-renderer
 LOCAL_SRC_FILES := xr_log.c \
                    xr_math.c \
+                   xr_steady.c \
                    xr_depthmap.c \
                    xr_shaders.c \
                    xr_session.c \

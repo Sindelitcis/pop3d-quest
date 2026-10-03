@@ -116,8 +116,8 @@ android {
         targetSdk 34
 
         // Pop3D: versão própria (a loja exige versionCode crescente a cada envio)
-        versionName "1.2"
-        versionCode = 3
+        versionName "1.3"
+        versionCode = 4
 
         // Meta Quest 2/3/3S/Pro são todos arm64: as outras arquiteturas só aumentavam o APK
         ndk {

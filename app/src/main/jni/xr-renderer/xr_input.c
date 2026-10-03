@@ -9,6 +9,10 @@
 // so a hand held near the threshold does not chatter.
 #define PINCH_ON_M  0.020f
 #define PINCH_OFF_M 0.032f
+// A finger on its way to a click, which pins the cursor before the press
+// itself lands, since closing the hand is what knocks the ray off the target
+#define PINCH_NEAR_M 0.045f
+#define TRIGGER_ARM  0.12f
 
 static void initJointTracking(XrCtx* ctx) {
     if (!ctx->handTracking) {
@@ -448,6 +452,7 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
                          int headValid) {
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
         ctx->handRayValid[hand] = 0;
+        ctx->pinchNear[hand] = 0;
         return 0;
     }
 
@@ -462,6 +467,7 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     if (XR_FAILED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate, &locations))
             || !locations.isActive) {
         ctx->jointPinch[hand] = 0;
+        ctx->pinchNear[hand] = 0;
         ctx->pinchPointValid[hand] = 0;
         ctx->handRayValid[hand] = 0;
         return 0;
@@ -476,6 +482,7 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     if (!(thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
             || !(index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
         ctx->jointPinch[hand] = 0;
+        ctx->pinchNear[hand] = 0;
         ctx->pinchPointValid[hand] = 0;
         return 0;
     }
@@ -491,6 +498,7 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     ctx->pinchPoint[hand].z = (thumb->pose.position.z + index->pose.position.z) * 0.5f;
     ctx->pinchPointValid[hand] = 1;
 
+    ctx->pinchNear[hand] = gap < PINCH_NEAR_M;
     ctx->jointPinch[hand] = gap < (ctx->jointPinch[hand] ? PINCH_OFF_M : PINCH_ON_M);
     return ctx->jointPinch[hand];
 }
@@ -1562,6 +1570,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
     ctx->scrollCarry = 0.0f;
     ctx->filterU.valid = 0;
     ctx->filterV.valid = 0;
+    steadyReset(&ctx->steady);
 
     if (f->headValid) {
         Vec3 local;
@@ -1599,9 +1608,31 @@ static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     ctx->beamVisible = f->headValid;
 }
 
-// Smooths the hit point, hands it to Java and ends the ray on it
+// Whether a click is on its way or held, for pinning the cursor. Only the
+// hand doing the pointing can arm one, so a finger resting on the other
+// trigger leaves the cursor alone, but any hand's press counts as down.
+static void clickIntent(XrCtx* ctx, InputFrame* f, int* arming, int* down) {
+    *arming = 0;
+    *down = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->triggerSwallowed[h]) {
+            continue;
+        }
+        if (ctx->triggerDown[h]) {
+            *down = 1;
+        }
+        else if (h == f->hand
+                 && (ctx->triggerValue[h] > TRIGGER_ARM || ctx->pinchNear[h])) {
+            *arming = 1;
+        }
+    }
+}
+
+// Smooths the hit point, pins it through a click, hands it to Java and ends
+// the ray on it
 static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (!hit) {
+        steadyReset(&ctx->steady);
         return;
     }
     // Filtering across a gap or a change of hands would slide the cursor
@@ -1609,6 +1640,7 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
     if (f->hand != ctx->lastHand || f->now - ctx->lastHitNs > POINTER_RESET_NS) {
         ctx->filterU.valid = 0;
         ctx->filterV.valid = 0;
+        steadyReset(&ctx->steady);
     }
     ctx->lastHand = f->hand;
     ctx->lastHitNs = f->now;
@@ -1617,12 +1649,33 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                          ctx->pointerBeta);
     float v = euroFilter(&ctx->filterV, f->hitV[f->hand], f->dt, ctx->pointerMinCutoff,
                          ctx->pointerBeta);
+
+    // The pin works in angles seen from the hand, so it needs how far off
+    // the screen is. Clamped so a hand pressed up to the picture still
+    // divides by something sensible.
+    Vec3 aimed = screenPoint(u, v, f->screenPose, ctx->screenWidth, f->height, f->radius,
+                             f->curved);
+    XrVector3f from = f->aimPoses[f->hand].position;
+    Vec3 reach = { aimed.x - from.x, aimed.y - from.y, aimed.z - from.z };
+    float dist = sqrtf(vecDot(reach, reach));
+    if (dist < 0.3f) {
+        dist = 0.3f;
+    }
+    int arming, down;
+    clickIntent(ctx, f, &arming, &down);
+    if (steadyPointer(&ctx->steady, u, v, ctx->screenWidth / dist, f->height / dist,
+                      arming, down, f->now)) {
+        LOGI("pointer: %s", steadyModeName(ctx->steady.mode));
+    }
+    u = ctx->steady.outU;
+    v = ctx->steady.outV;
     f->out[IN_HIT] = 1.0f;
     f->out[IN_U] = u;
     f->out[IN_V] = v;
 
     // The ray is only drawn when it lands on something, which is what
-    // makes a laser readable rather than a light show
+    // makes a laser readable rather than a light show. It ends on the
+    // cursor the host was sent, pinned or not, so the two always agree.
     Vec3 endPoint = screenPoint(u, v, f->screenPose, ctx->screenWidth, f->height, f->radius,
                                 f->curved);
     ctx->beamStart = f->aimPoses[f->hand].position;

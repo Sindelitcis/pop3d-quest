@@ -9,7 +9,7 @@ SRC := ../../main/jni/xr-renderer
 INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
-TESTS := $(OUT)/test_math $(OUT)/test_depthmap
+TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_steady
 
 .PHONY: test clean
 
@@ -23,6 +23,10 @@ $(OUT)/test_math: test_math.c check.h $(SRC)/xr_math.c $(SRC)/xr_math.h
 $(OUT)/test_depthmap: test_depthmap.c check.h $(SRC)/xr_depthmap.c $(SRC)/xr_depthmap.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_depthmap.c $(SRC)/xr_depthmap.c -lm
+
+$(OUT)/test_steady: test_steady.c check.h $(SRC)/xr_steady.c $(SRC)/xr_steady.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_steady.c $(SRC)/xr_steady.c -lm
 
 clean:
 	rm -rf $(OUT)

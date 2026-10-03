@@ -35,6 +35,7 @@
 #include <openxr/openxr_platform.h>
 
 #include "xr_math.h"
+#include "xr_steady.h"
 #include "xr_shared.h"
 
 #define TAG "moonlight-xr"
@@ -751,6 +752,9 @@ typedef struct {
     int jointTracking;
     XrHandTrackerEXT handTrackers[HAND_COUNT];
     int jointPinch[HAND_COUNT];
+    // Thumb and finger closing in on a pinch that has not landed yet, which
+    // is when the cursor gets pinned for the click
+    int pinchNear[HAND_COUNT];
     Vec3 pinchPoint[HAND_COUNT];
     int pinchPointValid[HAND_COUNT];
     // A ray built out of the joints, for runtimes that track hands but do not
@@ -842,6 +846,8 @@ typedef struct {
     float pointerBeta;
     long lastHitNs;
     int lastHand;
+    // Holds the cursor still through a click, see xr_steady.h
+    SteadyState steady;
 
     // One euro filter state for the aim pose, per hand
     EuroState aimFilterPos[HAND_COUNT][3];
