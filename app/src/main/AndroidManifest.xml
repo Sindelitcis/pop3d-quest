@@ -66,6 +66,10 @@
         android:name="android.hardware.vr.headtracking"
         android:version="1"
         android:required="true"/>
+    <!-- Pop3D: o VR desenha com OpenGL ES 3 (a loja da Meta exige declarar GLES ou Vulkan) -->
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="true"/>
     <!-- Meta gates the passthrough cameras on this. Not required, since the
          other headset does passthrough as a blend mode instead -->
     <uses-feature
@@ -226,6 +230,7 @@
              value Game carried won both launches -->
         <activity
             android:name=".GameXR"
+            android:screenOrientation="landscape"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
             android:noHistory="true"
             android:resizeableActivity="false"
@@ -242,12 +247,17 @@
             <meta-data
                 android:name="pvr.app.type"
                 android:value="vr" />
+            <!-- Pop3D: a loja da Meta exige focus aware (menu do sistema por cima do app) -->
+            <meta-data
+                android:name="com.oculus.vr.focusaware"
+                android:value="true" />
         </activity>
 
         <!-- Estudio 3D: recebe video SBS + audio do PC e mostra um olho em cada
              olho. Mesmos atributos VR do GameXR, mas e o icone (launcher) -->
         <activity
             android:name=".EstudioActivity"
+            android:screenOrientation="landscape"
             android:label="@string/app_label"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
             android:resizeableActivity="false"
@@ -264,6 +274,10 @@
             <meta-data
                 android:name="pvr.app.type"
                 android:value="vr" />
+            <!-- Pop3D: a loja da Meta exige focus aware (menu do sistema por cima do app) -->
+            <meta-data
+                android:name="com.oculus.vr.focusaware"
+                android:value="true" />
         </activity>
 
         <service

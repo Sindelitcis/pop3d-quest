@@ -112,7 +112,8 @@ android {
     defaultConfig {
         // Pop3D: Quest 2 em diante (Android 10+); a loja da Meta pede no mínimo 29
         minSdk 29
-        targetSdk 36
+        // Pop3D: a loja da Meta aceita no máximo 34
+        targetSdk 34
 
         // Pop3D: versão própria (a loja exige versionCode crescente a cada envio)
         versionName "1.0"
