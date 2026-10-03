@@ -157,7 +157,6 @@
         <!-- Small hack to support launcher shortcuts without relaunching over and over again when the back button is pressed -->
         <activity
             android:name=".ShortcutTrampoline"
-            android:noHistory="true"
             android:exported="true"
             android:resizeableActivity="true"
             android:enableOnBackInvokedCallback="true"
@@ -199,7 +198,6 @@
         <activity
             android:name=".Game"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
-            android:noHistory="true"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:enableOnBackInvokedCallback="false"
@@ -232,7 +230,6 @@
             android:name=".GameXR"
             android:screenOrientation="landscape"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
-            android:noHistory="true"
             android:resizeableActivity="false"
             android:enableOnBackInvokedCallback="false"
             android:launchMode="singleTask"
