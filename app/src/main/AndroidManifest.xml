@@ -61,11 +61,11 @@
         android:name="android.hardware.type.pc"
         android:required="false"/>
 
-    <!-- VR headsets. Optional so phones and TVs are unaffected -->
+    <!-- Pop3D: só roda em óculos; a loja da Meta exige required="true" em apps VR -->
     <uses-feature
         android:name="android.hardware.vr.headtracking"
         android:version="1"
-        android:required="false"/>
+        android:required="true"/>
     <!-- Meta gates the passthrough cameras on this. Not required, since the
          other headset does passthrough as a blend mode instead -->
     <uses-feature

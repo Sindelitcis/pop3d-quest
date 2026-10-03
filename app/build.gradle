@@ -110,7 +110,8 @@ android {
     namespace 'com.limelight'
 
     defaultConfig {
-        minSdk 21
+        // Pop3D: Quest 2 em diante (Android 10+); a loja da Meta pede no mínimo 29
+        minSdk 29
         targetSdk 36
 
         // Pop3D: versão própria (a loja exige versionCode crescente a cada envio)
