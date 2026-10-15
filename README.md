@@ -1,275 +1,86 @@
-<p align="center">
-  <img src="moonlight-xr-logo-transparent.png" height="200" alt="moonlight-xr-logo"><br>
-  <a href="https://ko-fi.com/moonlightxr">
-    <img src="https://img.shields.io/badge/ko--fi-support-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" height="35" alt="Ko-fi">
-  </a>
-  <br>
-  <a href="https://ko-fi.com/moonlightxr">
-    <strong>Support on Ko-fi</strong>
-  </a>
-</p>
+# Pop3D for Meta Quest
 
-# Moonlight XR
+The headset app of [Pop3D](https://pop3d.quest), a free Windows app that turns 2D video into 3D
+and plays it in a VR headset. The PC does the work; this app shows what the PC sends and sends the
+controllers back. Available on the Meta Horizon Store.
 
-A fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android) that
-runs as a native OpenXR application and shows the game stream in stereoscopic 3D on a headset.
-
-The stereo is generated entirely on the headset. A normal mono stream arrives from the PC exactly
-as stock Moonlight receives it, a depth model runs on the frame, and a depth image based rendering
-shader synthesises a separate view for each eye. Nothing on the PC side changes: no ReShade, no
-stereo injector, no side by side transport, no Sunshine modifications. The host does not know it
-is feeding a VR client, so this works with any Moonlight compatible host and any game, including
-ones no depth buffer injector can reach.
-
-On a headset the app starts in VR with the 3D effect already on, because the stock defaults make
-it look broken on a virtual screen. Every part of it is a setting, and turning VR mode off gives
-you stock Moonlight behaviour.
-
-## Hardware
-
-Built and tested on Pico 4 Ultra and Quest 3, both Snapdragon XR2 Gen 2, from one APK.
-
-Quest 2, Quest Pro and Pico 4 are the previous generation with much less GPU headroom. They are
-untested, and the depth model may be too expensive for them at any resolution.
+It is a fork of [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece,
+which is itself a fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android).
+[What this fork adds](#what-this-fork-adds) and [Credits](#credits-and-license) say what came from where.
 
 ## How it works
 
-    decoder -> SurfaceTexture (external OES texture)
-            -> downscale to 256x256, read back
-            -> MiDaS small on the GPU, on its own thread
-            -> depth upsampled to quarter resolution, guided by the colour frame
-            -> occlusion aware gather warp, one view per eye
-            -> two OpenXR quad layers, one per eye
+The Quest works as a remote VR monitor for the PC. Panel layout, menus, laser hits, playback controls
+and the 2D to 3D conversion all run on the PC. The headset:
 
-Depth inference costs about 22 ms, which is longer than a display frame, so it runs on a separate
-thread at a configurable cadence rather than inline. The warp costs about 2.8 ms of GPU time per
-frame out of the 11.1 ms budget at 90 Hz.
+1. finds the PC on the local network (UDP broadcast, port 52300) or over USB
+   (`adb reverse tcp:52301 tcp:52301`) and connects over TCP, port 52301;
+2. decodes the HEVC video stream and receives panel textures as zlib-compressed RGBA;
+3. every frame, draws exactly the list of layers the PC last sent: quads, cylinders and the
+   controller laser, with one video layer per eye for 3D;
+4. every frame, sends back the head and controller poses, the buttons and the OpenXR session state;
+   plays the PC audio and vibrates the controllers when the PC asks.
 
-## What to expect
+With no PC connected, the app shows a "looking for your PC" panel (Portuguese, English or Spanish).
+From there, the trigger asks Pop3D on the PC to open, and the A button plays a short 3D demo
+stored in the APK.
 
-This is an honest 3D effect, not a native stereo renderer, and it has limits worth knowing before
-you build it:
-
-- **Separation is deliberately conservative.** The default of 0.5 percent of frame width was
-  chosen by measurement. Higher values were tested blind and produced no more perceived depth
-  while causing eye strain and worse edge artifacts.
-- **Silhouettes against high contrast backgrounds show some smearing.** A mono frame does not
-  contain the pixels a second eye needs behind a foreground object, so that region is stretched.
-  It is most visible on hard edges such as a hillside against bright sky, and largely invisible
-  in ordinary content.
-- **Depth lags the picture by roughly 50 ms.** The depth map is re-snapped onto each frame's
-  colour edges, so this shows up as depth values being slightly stale rather than as misaligned
-  edges.
-
-## Using the controllers
-
-The controllers work as a mouse. Point at the screen and a laser appears, the
-trigger is left click, the thumbstick scrolls. It wakes on deliberate movement
-rather than on any nudge, and retires itself after five seconds of stillness.
-The thumbstick click turns the whole thing off if you would rather not have it.
-
-The screen itself can be moved and resized in place. Hover under it and a bar
-appears to drag it around in 6DOF, hover any corner and a bracket appears to
-resize it. Either grip or trigger holds a handle, since apps disagree about
-which one should. Where you leave it is where it will be next time, and
-recentring the headset puts it back to where a fresh install starts.
-
-To the left of the move bar is a button that opens a grid of environments:
-passthrough, an empty black room, and the bundled 360 photos. Passthrough is
-in the grid as well as in the settings, so it can be switched mid stream.
-
-## Settings
-
-**VR Settings**:
-
-| Setting | Default | Notes |
-| --- | --- | --- |
-| Stream in VR | on | Immersive OpenXR session instead of a flat panel |
-| Head locked screen | off | Screen follows your view rather than staying in the world |
-| Screen distance | 3.0 m | |
-| Screen width | 3.0 m | 3 m wide at 3 m away is about 53 degrees |
-| Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers. Also reachable from the environment grid while streaming |
-| Realtime 3D mode | V1.0 - MiDaS Based 3D | "Off" streams flat, the rest are test patterns |
-| Stereo separation | 0.5 % | Of frame width. Above about 0.5 the picture is not any deeper, only harder on the eyes |
-| Screen curvature | 0 | 0 is flat, higher wraps the screen around you |
-
-**VR Debugging**, which you should not need:
-
-| Setting | Default | Notes |
-| --- | --- | --- |
-| Depth model cadence | 3 frames | Run the depth model on every Nth video frame |
-| Show depth map | off | Renders the depth map as grayscale instead of the video |
-| Swap eyes | off | |
-
-The stream defaults also change on a headset, because the stock ones look bad on a virtual screen:
-
-| Setting | Default |
-| --- | --- |
-| Resolution | 2560x1440 |
-| Frame rate | 90 |
-
-1440p is the default because 4K costs decode latency and host bitrate for a gain that is easy to
-miss. 4K is there in the list if you want it, and is worth trying. 720p is unusable on a virtual
-screen this size and 1080p is merely acceptable. Bitrate follows the resolution and frame rate as
-it does upstream, so changing either resets it.
-
-"Show performance stats while streaming" works inside the VR session and adds warp GPU time,
-depth inference time, depth age and skipped depth frames to the usual figures.
+Supported headsets: Meta Quest 2, 3 and 3S.
 
 ## Building
 
-Requires Android Studio with the NDK, and the submodules:
+Requires Android Studio with the NDK and the submodule:
 
     git submodule update --init --recursive
+    ./gradlew assembleNonRootRelease
 
-Debug build:
+The `nonRoot` flavor is the Pop3D build (`io.github.sindelitcis.pop3d`, arm64-v8a only).
+To sign it, copy `keystore.properties.example` to `keystore.properties` and point it to your
+keystore; without that file the build produces an unsigned APK. For a debug build use
+`./gradlew assembleNonRootDebug`.
 
-    ./gradlew assembleNonRootDebug
-
-The APK lands in `app/build/outputs/apk/nonRoot/debug/`. Install it with `adb install -r`.
-
-### Tests
-
-The parts of the renderer with no GL, OpenXR or Android in them, the maths and the depth map
-filtering, build and run on a desktop with any C compiler, and the Java side has plain unit tests
-for the click handling:
+Tests (the C ones build on any desktop compiler):
 
     make -C app/src/test/cpp test
     ./gradlew testNonRootDebugUnitTest
 
-The workflow in `.github/workflows/build.yml` runs both, then lint and a debug and a release build,
-on every push. A tag starting with `v` also publishes the release APK, signed when the repository
-has `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD` and `KEY_ALIAS` secrets and unsigned otherwise.
+## What this fork adds
 
-### Bug reports
+Changes on top of Moonlight XR, made by Rafael Probst in October 2026:
 
-"Report a problem" under VR Debugging in the settings bundles the user's message, the device,
-the streaming settings and the log into one file and saves it beside the log. With
-`moonlightReportUrl` and `moonlightReportToken` set in `gradle.properties` it also sends that file,
-gzipped, to the collector in `tools/report-worker`, a Cloudflare Worker that emails it on as an
-attachment, which is how a report gets off a headset with no email app.
+- `EstudioActivity.java`: the app's entry point. PC discovery, the TCP connection and protocol,
+  audio, the search panel and the built-in demo.
+- `xr_remote.c`: remote monitor mode in the native renderer. Keeps the textures the PC sends,
+  turns the layer list into OpenXR composition layers, draws the laser from the controller's
+  current pose and reads the controllers for the PC. In this mode the original rooms, glow
+  and pointer code do not run.
+- `xr_steady.c`: holds the cursor still through a controller click, so a shaky hand does not
+  turn a click into a drag. Covered by `test_steady.c`.
+- Meta Horizon Store requirements: targetSdk 34, minSdk 29, OpenGL ES 3, focus awareness,
+  landscape, required head tracking.
+- Own app id, name and icon; Quest 3S support; arm64 only.
+- The on-headset depth model (MiDaS on LiteRT) was removed, since Pop3D computes depth on the PC.
+  That took the APK from 75 MB to about 24 MB, before the 3D demo video was added.
 
-### Release APK
+Some class and message names still say "Estudio", the project's working name before Pop3D.
 
-A headset will not install an unsigned APK, so the release build has to be signed. Create a
-keystore once:
+## What comes from upstream
 
-    keytool -genkeypair -v -keystore release.keystore -alias moonlightvr \
-        -keyalg RSA -keysize 2048 -validity 10000
+From Moonlight XR: the OpenXR session and native renderer, the video swapchain, input bindings,
+and the build and test setup. Its own features (on-headset 2D to 3D, virtual rooms, 360 environments,
+ambient glow, the game streaming interface) are still in the source but are not used by Pop3D.
 
-Then copy `keystore.properties.example` to `keystore.properties` and fill in the password. Both
-that file and the keystore are gitignored. The build picks it up on its own:
+From Moonlight for Android: the hardware video decoder path, audio output and the Android app base.
 
-    ./gradlew assembleNonRootRelease
-    adb install -r app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk
+## Credits and license
 
-Without `keystore.properties` the build still works, but it produces
-`app-nonRoot-release-unsigned.apk` and you have to align and sign it yourself:
+GPLv3, same as upstream. See `LICENSE.txt`.
 
-    zipalign -f 4 \
-        app/build/outputs/apk/nonRoot/release/app-nonRoot-release-unsigned.apk \
-        moonlight-vr-release.apk
-    apksigner sign --ks release.keystore moonlight-vr-release.apk
-    apksigner verify moonlight-vr-release.apk
-    adb install -r moonlight-vr-release.apk
-
-`zipalign` and `apksigner` are in `$ANDROID_HOME/build-tools/<version>/`. The release build uses
-the `.unofficial` application ID suffix that upstream asks forks to keep, so it installs alongside
-a debug build and pairs with your host separately. Worth knowing while developing: the two are
-separate apps with separate settings, so a change tested on one is not on the other.
-
-Debug builds also read the `debug.moonlight.*` system properties, so the warp, pointer and glow
-tuning can be changed over `adb shell setprop` mid session, and `setprop debug.moonlight.capture 1`
-dumps a frame's warp inputs for `tools/warp_lab.py`. Release builds leave all of that out.
-
-The APK is about 55 MB, most of which is the depth model and the LiteRT native libraries for four
-ABIs. Only `arm64-v8a` is ever loaded on a headset; the other three are kept so the same build
-still runs on phones.
-
-## Code layout
-
-The XR side lives in two places. On the Java side `XrRenderer.java` owns the threads, the
-SurfaceTexture the decoder renders into, the frame loop and what gets saved between sessions;
-`XrPanels.java` draws the picker, the settings sheets, the keyboard and the exit prompt, since
-Java is the only place Android will lay out text; `MidasDepthSource.java` runs the depth model
-on LiteRT. Everything OpenXR and GL is native, under `app/src/main/jni/xr-renderer/`, one
-module per concern:
-
-| File | What it holds |
-| --- | --- |
-| `xr_shared.h` | Every value Java and the native side agree on; the build generates `XrShared.java` from it |
-| `xr_renderer.h` | The native-only constants, the context struct and what each module exports |
-| `xr_session.c` | Instance, session, the video swapchain, session state and the JNI lifecycle |
-| `xr_gl.c` | GL setup, the depth upsample, offset search and warp passes, the GPU timer |
-| `xr_depth.c`, `xr_depthmap.c` | The depth model staging and the CPU filtering of its output |
-| `xr_input.c` | Actions and bindings, hands and gaze, and the per frame input pass |
-| `xr_ui.c` | Where the furniture and the panels sit and what the ray is over |
-| `xr_layers.c` | The composition layers of a frame, in draw order |
-| `xr_assets.c` | The art swapchains and the uploads from Java that fill them |
-| `xr_ambilight.c` | The frame colour sample, letterbox detection and the glow |
-| `xr_room.c` | The 3d rooms |
-| `xr_remote.c` | Estudio 3D remote monitor mode: the textures and layer list the PC sends, the laser, the per frame input report and haptics. In this mode `nativeEndFrame` hands the whole frame to it and none of the furniture, rooms, glow or pointer code runs |
-| `xr_math.c` | Vectors, quaternions, the one euro filter and projection |
-| `xr_shaders.c` | The GLSL |
-| `xr_log.c`, `xr_debug.c` | The file log, the setprop tuning knobs and frame capture |
-
-### Estudio 3D remote monitor mode
-
-`EstudioActivity` (the launcher icon of this fork) turns the app into a thin remote compositor
-for a PC, following `PROTOCOLO.md` (one folder up). The OpenXR session starts with the app and is
-rebuilt if the system ends it; `XrRenderer.startRemote` runs it, `MediaCodecDecoderRenderer` is
-attached to its SurfaceTexture when a stream arrives, and each frame `xr_remote.c` submits exactly
-the last `CAMADAS` list received. The Moonlight furniture is not deleted, it is simply never reached
-in this mode.
-
-## Licences
-
-GPLv3, as upstream. Added dependencies are all compatible: the Khronos OpenXR loader (Apache 2.0),
-LiteRT and its GPU delegate (Apache 2.0), and the MiDaS v2.1 small depth model (MIT), converted to
-TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
-
-The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
-downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.
-
-The PSX Cinema environment is ["VR Cinema Environment"](https://skfb.ly/6VuIX) by fangzhangmnm,
-licensed under [Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/).
-Modified for this app: the mesh is baked to a flat format by `tools/bake_room.py` and the
-embedded texture is shipped alongside it.
-
----
-
-# Moonlight Android
-
-[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/232a8tadrrn8jv0k/branch/master?svg=true)](https://ci.appveyor.com/project/cgutman/moonlight-android/branch/master)
-[![Translation Status](https://hosted.weblate.org/widgets/moonlight/-/moonlight-android/svg-badge.svg)](https://hosted.weblate.org/projects/moonlight/moonlight-android/)
-
-[Moonlight for Android](https://moonlight-stream.org) is an open source client for NVIDIA GameStream and [Sunshine](https://github.com/LizardByte/Sunshine).
-
-Moonlight for Android will allow you to stream your full collection of games from your Windows PC to your Android device,
-whether in your own home or over the internet.
-
-Moonlight also has a [PC client](https://github.com/moonlight-stream/moonlight-qt) and [iOS/tvOS client](https://github.com/moonlight-stream/moonlight-ios).
-
-You can follow development on our [Discord server](https://moonlight-stream.org/discord) and help translate Moonlight into your language on [Weblate](https://hosted.weblate.org/projects/moonlight/moonlight-android/).
-
-## Downloads
-* [Google Play Store](https://play.google.com/store/apps/details?id=com.limelight)
-* [Amazon App Store](https://www.amazon.com/gp/product/B00JK4MFN2)
-* [F-Droid](https://f-droid.org/packages/com.limelight)
-* [APK](https://github.com/moonlight-stream/moonlight-android/releases)
-
-## Building
-* Install Android Studio and the Android NDK
-* Run ‘git submodule update --init --recursive’ from within moonlight-android/
-* In moonlight-android/, create a file called ‘local.properties’. Add an ‘ndk.dir=’ property to the local.properties file and set it equal to your NDK directory.
-* Build the APK using Android Studio or gradle
-
-## Authors
-
-* [Cameron Gutman](https://github.com/cgutman)  
-* [Diego Waxemberg](https://github.com/dwaxemberg)  
-* [Aaron Neyer](https://github.com/Aaronneyer)  
-* [Andrew Hennessy](https://github.com/yetanothername)
-
-Moonlight is the work of students at [Case Western](http://case.edu) and was
-started as a project at [MHacks](http://mhacks.org).
+- [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece and contributors.
+  If you want to support that project, it has a [Ko-fi](https://ko-fi.com/moonlightxr).
+- [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android) by Cameron Gutman,
+  Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors.
+- Khronos OpenXR loader, Apache 2.0.
+- 360 environments from [Poly Haven](https://polyhaven.com), CC0.
+- ["VR Cinema Environment"](https://skfb.ly/6VuIX) by fangzhangmnm,
+  [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/), baked to a flat format for this app.
