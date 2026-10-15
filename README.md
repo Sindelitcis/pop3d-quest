@@ -2,7 +2,7 @@
 
 The headset app of [Pop3D](https://pop3d.quest), a free Windows app that turns 2D video into 3D
 and plays it in a VR headset. The PC does the work; this app shows what the PC sends and sends the
-controllers back. Available on the Meta Horizon Store.
+controllers back. Available on the [Meta Horizon Store](https://www.meta.com/experiences/1331076283427448/).
 
 It is a fork of [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) by Sean Gilleece,
 which is itself a fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android).
